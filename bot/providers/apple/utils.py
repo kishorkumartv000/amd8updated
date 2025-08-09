@@ -1,7 +1,9 @@
 import os
 import re
 import shutil
+import zipfile
 import logging
+import subprocess
 from pathlib import Path
 from config import Config
 from bot.logger import LOGGER
@@ -161,3 +163,34 @@ def apple_supported_formats() -> dict:
     return {
         'alac': ['192000', '256000', '320000'],
         'atmos': ['2768', '3072', '3456']
+    }
+
+def create_apple_zip(folder_path: str, user_id: int, metadata: dict) -> str:
+    """
+    Create zip file for Apple Music content
+    Args:
+        folder_path: Path to folder to zip
+        user_id: Telegram user ID
+        metadata: File metadata
+    Returns:
+        str: Path to created zip file
+    """
+    try:
+        zip_name = f"{metadata['title']} - {metadata['artist']}.zip"
+        zip_dir = os.path.join(Config.LOCAL_STORAGE, "Zips", str(user_id))
+        zip_path = os.path.join(zip_dir, zip_name)
+        
+        os.makedirs(zip_dir, exist_ok=True)
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, folder_path)
+                    zipf.write(file_path, arcname)
+        
+        LOGGER.info(f"Created Apple zip archive: {zip_path}")
+        return zip_path
+    except Exception as e:
+        logger.error(f"Zip creation failed: {str(e)}")
+        raise
