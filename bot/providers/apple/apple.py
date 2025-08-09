@@ -9,11 +9,12 @@ from .utils import (
     cleanup_apple_files,
     validate_apple_url
 )
-from bot.helpers.uploader import (
-    track_upload,
-    album_upload,
-    music_video_upload,
-    playlist_upload
+from .uploader import (
+    apple_track_upload,
+    apple_album_upload,
+    apple_music_video_upload,
+    apple_playlist_upload,
+    apple_artist_upload
 )
 from bot.helpers.utils import format_string
 from bot.logger import LOGGER
@@ -32,14 +33,11 @@ class AppleMusicCore:
     async def process(self, url: str, user: dict, options: dict = None):
         """Main processing pipeline for Apple Music content"""
         try:
-            # Validate URL format
             if not validate_apple_url(url):
                 raise ValueError("Invalid Apple Music URL format")
 
-            # Create user-specific directory
             user_dir = create_apple_directory(user['user_id'])
             
-            # Run downloader with progress updates
             download_result = await run_apple_downloader(
                 url, 
                 user_dir, 
@@ -50,16 +48,8 @@ class AppleMusicCore:
             if not download_result['success']:
                 raise RuntimeError(download_result['error'])
 
-            # Process downloaded files
-            content_type, processed_data = await self._process_content(
-                user_dir, 
-                url
-            )
-
-            # Handle upload based on content type
+            content_type, processed_data = await self._process_content(user_dir, url)
             await self._handle_upload(content_type, processed_data, user)
-
-            # Final cleanup
             cleanup_apple_files(user['user_id'])
             await self._send_completion_message(user)
 
@@ -78,13 +68,16 @@ class AppleMusicCore:
                 if any(file_path.endswith(ext) for ext in ('.m4a', '.flac', '.mp4', '.mov')):
                     try:
                         metadata = extract_apple_metadata(file_path)
-                        metadata['filepath'] = file_path
+                        metadata.update({
+                            'filepath': file_path,
+                            'provider': self.name
+                        })
                         items.append(metadata)
                     except Exception as e:
-                        LOGGER.error(f"Metadata extraction failed for {file_path}: {str(e)}")
+                        LOGGER.error(f"Metadata extraction failed: {str(e)}")
 
         if not items:
-            raise ValueError("No valid media files found in download directory")
+            raise ValueError("No valid media files found")
 
         return self._determine_content_type(url, items), {
             'items': items,
@@ -94,7 +87,7 @@ class AppleMusicCore:
         }
 
     def _determine_content_type(self, url: str, items: list) -> str:
-        """Determine content type based on URL and files"""
+        """Identify content type from URL and files"""
         if 'music-video' in url:
             return 'video'
         if 'playlist' in url:
@@ -104,13 +97,13 @@ class AppleMusicCore:
         return 'album' if len(items) > 1 else 'track'
 
     async def _handle_upload(self, content_type: str, data: dict, user: dict):
-        """Route to appropriate upload handler"""
+        """Route to Apple-specific upload handler"""
         upload_handlers = {
-            'track': track_upload,
-            'video': music_video_upload,
-            'album': album_upload,
-            'playlist': playlist_upload,
-            'artist': artist_upload
+            'track': apple_track_upload,
+            'video': apple_music_video_upload,
+            'album': apple_album_upload,
+            'playlist': apple_playlist_upload,
+            'artist': apple_artist_upload
         }
         
         if content_type not in upload_handlers:
@@ -123,8 +116,13 @@ class AppleMusicCore:
         await user['bot_msg'].edit_text(
             format_string(
                 "✅ Apple Music download completed!\n"
+                "Format: {format}\n"
                 "Quality: {quality}",
-                {'quality': Config.APPLE_DEFAULT_FORMAT.upper()}
+                {
+                    'format': Config.APPLE_DEFAULT_FORMAT.upper(),
+                    'quality': Config.APPLE_ALAC_QUALITY if Config.APPLE_DEFAULT_FORMAT == 'alac' 
+                             else Config.APPLE_ATMOS_QUALITY
+                }
             )
         )
 
