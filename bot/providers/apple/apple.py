@@ -1,206 +1,169 @@
 import os
 import re
-import asyncio
 import logging
-import shutil
-from bot.helpers.utils import (
-    run_apple_downloader,
-    extract_apple_metadata,
-    send_message,
-    edit_message,
-    format_string,
-    cleanup
-)
-from bot.helpers.uploader import track_upload, album_upload, music_video_upload, artist_upload, playlist_upload
-from bot.helpers.database.pg_impl import download_history
+import asyncio
 from config import Config
 from bot.logger import LOGGER
+from bot.helpers.message import edit_message
+from .downloader import run_apple_downloader
+from .metadata import extract_apple_metadata
+from .utils import (
+    validate_apple_url,
+    extract_content_id,
+    create_apple_directory,
+    cleanup_apple_files,
+    format_apple_quality
+)
 
 logger = logging.getLogger(__name__)
 
-class AppleMusicProvider:
+class AppleMusicCore:
+    """Main processor for Apple Music content"""
+    
     def __init__(self):
         self.name = "apple"
-    
-    def validate_url(self, url: str) -> bool:
-        """Check if URL is valid Apple Music content"""
-        return bool(re.match(
-            r"https://music\.apple\.com/.+/(album|song|playlist|music-video)/.+", 
-            url
-        ))
-    
-    def extract_content_id(self, url: str) -> str:
-        """Extract Apple Music content ID from URL"""
-        match = re.search(r'/(album|song|playlist|music-video|artist)/[^/]+/(\d+)', url)
-        return match.group(2) if match else "unknown"
-    
-    async def process(self, url: str, user: dict, options: dict = None) -> dict:
-        """Process Apple Music URL with options"""
-        # Create user-specific directory
-        user_dir = os.path.join(Config.LOCAL_STORAGE, str(user['user_id']), "Apple Music")
-        os.makedirs(user_dir, exist_ok=True)
-        LOGGER.info(f"Created Apple Music directory: {user_dir}")
-        
-        # Process options
-        cmd_options = self.build_options(options)
-        
-        # Update user message
-        await edit_message(user['bot_msg'], "⏳ Starting Apple Music download...")
-        
-        # Download content
-        result = await run_apple_downloader(url, user_dir, cmd_options, user)
-        if not result['success']:
-            LOGGER.error(f"Apple downloader failed: {result['error']}")
-            return result
-        
-        # Find downloaded files
-        files = []
-        for root, _, filenames in os.walk(user_dir):
-            for file in filenames:
-                file_path = os.path.join(root, file)
-                # Collect all relevant files
-                if file.endswith(('.m4a', '.flac', '.alac', '.mp4', '.m4v', '.mov')):
-                    files.append(file_path)
-        
-        if not files:
-            LOGGER.error(f"No files found in: {user_dir}")
-            try:
-                LOGGER.error(f"Directory contents: {os.listdir(user_dir)}")
-            except Exception as e:
-                LOGGER.error(f"Error listing contents: {str(e)}")
-            return {'success': False, 'error': "No files downloaded"}
-        
-        LOGGER.info(f"Found {len(files)} files in {user_dir}")
-        
-        # Extract metadata
+        self.supported_types = [
+            'album', 'song', 'playlist',
+            'music-video', 'artist'
+        ]
+
+    async def process(self, url: str, user: dict, options: dict = None):
+        """Main processing pipeline for Apple Music content"""
+        try:
+            # Validate Apple Music URL
+            if not validate_apple_url(url):
+                await self._handle_error(user, "Invalid Apple Music URL")
+                return
+
+            # Create user-specific directory
+            user_dir = create_apple_directory(user['user_id'])
+            LOGGER.info(f"Created Apple directory: {user_dir}")
+
+            # Execute downloader
+            download_result = await run_apple_downloader(
+                url, 
+                user_dir, 
+                options, 
+                user
+            )
+            
+            if not download_result['success']:
+                raise RuntimeError(download_result['error'])
+
+            # Process downloaded files
+            content_type, processed_data = await self._process_content(user_dir, url)
+            
+            # Handle upload based on content type
+            await self._handle_upload(content_type, processed_data, user)
+
+            # Final cleanup
+            cleanup_apple_files(user['user_id'])
+            await self._send_completion_message(user)
+
+        except Exception as e:
+            logger.error(f"Apple Music processing failed: {str(e)}", exc_info=True)
+            cleanup_apple_files(user['user_id'])
+            await self._handle_error(user, str(e))
+
+    async def _process_content(self, directory: str, url: str):
+        """Process downloaded files and extract metadata"""
         items = []
-        for file_path in files:
-            try:
-                metadata = await extract_apple_metadata(file_path)
-                metadata['filepath'] = file_path
-                metadata['provider'] = self.name
-                items.append(metadata)
-                LOGGER.info(f"Processed file: {file_path}")
-            except Exception as e:
-                LOGGER.error(f"Metadata extraction failed for {file_path}: {str(e)}")
-        
-        # Handle case where no metadata was extracted
+        for root, _, files in os.walk(directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if self._is_media_file(file_path):
+                    try:
+                        metadata = extract_apple_metadata(file_path)
+                        metadata.update({
+                            'filepath': file_path,
+                            'provider': self.name
+                        })
+                        items.append(metadata)
+                    except Exception as e:
+                        LOGGER.error(f"Metadata extraction failed: {str(e)}")
+
         if not items:
-            LOGGER.error("No valid metadata extracted for any files")
-            return {'success': False, 'error': "Metadata extraction failed"}
-        
-        # Determine content type based on file types
-        has_video = any(f.endswith(('.mp4', '.m4v', '.mov')) for f in files)
-        has_audio = any(f.endswith(('.m4a', '.flac', '.alac')) for f in files)
-        is_single = len(items) == 1
-        
-        if is_single:
-            if has_video:
-                content_type = 'video'
-                folder_path = os.path.dirname(items[0]['filepath'])
-            else:
-                content_type = 'track'
-                folder_path = os.path.dirname(items[0]['filepath'])
-        elif has_video and has_audio:
-            # Mixed content - treat as playlist
-            content_type = 'playlist'
-            folder_path = os.path.dirname(os.path.commonpath([i['filepath'] for i in items]))
-            LOGGER.warning(f"Mixed video/audio content detected. Treating as playlist: {folder_path}")
-        else:
-            # Pure audio collection
-            content_type = 'album'
-            folder_path = os.path.dirname(os.path.commonpath([i['filepath'] for i in items]))
-        
-        # Record download in history
-        content_id = self.extract_content_id(url)
-        quality = options.get('mv-max', Config.APPLE_ATMOS_QUALITY) if has_video else \
-                 options.get('alac-max', Config.APPLE_ALAC_QUALITY) if 'alac' in (options or {}) else \
-                 options.get('atmos-max', Config.APPLE_ATMOS_QUALITY)
-        
-        # Use first item's title if album title is missing
-        album_title = items[0].get('album', items[0]['title'])
-        
-        download_history.record_download(
-            user_id=user['user_id'],
-            provider=self.name,
-            content_type=content_type,
-            content_id=content_id,
-            title=album_title,
-            artist=items[0]['artist'],
-            quality=str(quality)  # Convert to string
-        )
-        
-        return {
-            'success': True,
-            'type': content_type,
+            raise ValueError("No valid media files found")
+
+        return self._determine_content_type(url, items), {
             'items': items,
-            'folderpath': folder_path,
-            'title': album_title,
-            'artist': items[0]['artist'],
-            'poster_msg': user['bot_msg']
+            'folderpath': directory,
+            'title': items[0].get('album', items[0]['title']),
+            'artist': items[0]['artist']
         }
-    
-    def build_options(self, options: dict) -> list:
-        """Convert options dictionary to command-line flags"""
-        if not options:
-            return []
-        
-        cmd_options = []
-        option_map = {
-            'aac': '--aac',
-            'aac-type': '--aac-type',
-            'alac-max': '--alac-max',
-            'all-album': '--all-album',
-            'atmos': '--atmos',
-            'atmos-max': '--atmos-max',
-            'debug': '--debug',
-            'mv-audio-type': '--mv-audio-type',
-            'mv-max': '--mv-max',
-            'select': '--select',
-            'song': '--song'
+
+    def _determine_content_type(self, url: str, items: list) -> str:
+        """Identify content type from URL and file structure"""
+        if 'music-video' in url:
+            return 'video'
+        if 'playlist' in url:
+            return 'playlist'
+        if 'artist' in url:
+            return 'artist'
+        return 'album' if len(items) > 1 else 'track'
+
+    def _is_media_file(self, path: str) -> bool:
+        """Check if file is supported media type"""
+        return any(path.endswith(ext) for ext in ('.m4a', '.flac', '.mp4', '.mov'))
+
+    async def _handle_upload(self, content_type: str, data: dict, user: dict):
+        """Route to appropriate upload handler"""
+        handlers = {
+            'track': self._upload_track,
+            'video': self._upload_video,
+            'album': self._upload_album,
+            'playlist': self._upload_playlist,
+            'artist': self._upload_artist
         }
         
-        for key, value in options.items():
-            if key in option_map:
-                if value is True:  # Flag option
-                    cmd_options.append(option_map[key])
-                else:  # Value option
-                    cmd_options.extend([option_map[key], str(value)])
+        if content_type not in handlers:
+            raise ValueError(f"Unsupported content type: {content_type}")
         
-        return cmd_options
+        await handlers[content_type](data, user)
+
+    async def _upload_track(self, data: dict, user: dict):
+        """Upload single track"""
+        from bot.helpers.uploader import track_upload
+        await track_upload(data['items'][0], user)
+
+    async def _upload_video(self, data: dict, user: dict):
+        """Upload music video"""
+        from bot.helpers.uploader import music_video_upload
+        await music_video_upload(data['items'][0], user)
+
+    async def _upload_album(self, data: dict, user: dict):
+        """Upload album"""
+        from bot.helpers.uploader import album_upload
+        await album_upload(data, user)
+
+    async def _upload_playlist(self, data: dict, user: dict):
+        """Upload playlist"""
+        from bot.helpers.uploader import playlist_upload
+        await playlist_upload(data, user)
+
+    async def _upload_artist(self, data: dict, user: dict):
+        """Upload artist content"""
+        from bot.helpers.uploader import artist_upload
+        await artist_upload(data, user)
+
+    async def _send_completion_message(self, user: dict):
+        """Send final success message"""
+        quality = format_apple_quality(Config.APPLE_DEFAULT_FORMAT)
+        await edit_message(
+            user['bot_msg'],
+            f"✅ Apple Music Download Complete!\n"
+            f"Format: {Config.APPLE_DEFAULT_FORMAT.upper()}\n"
+            f"Quality: {quality}"
+        )
+
+    async def _handle_error(self, user: dict, error: str):
+        """Handle error messaging"""
+        await edit_message(
+            user['bot_msg'],
+            f"❌ Apple Music Error:\n{error}"
+        )
 
 async def start_apple(link: str, user: dict, options: dict = None):
-    """Handle Apple Music download request with options"""
-    try:
-        provider = AppleMusicProvider()
-        if not provider.validate_url(link):
-            await edit_message(user['bot_msg'], "❌ Invalid Apple Music URL")
-            return
-        
-        # Process content with options
-        result = await provider.process(link, user, options)
-        if not result['success']:
-            await edit_message(user['bot_msg'], f"❌ Error: {result['error']}")
-            return
-        
-        # Process and upload content based on type
-        if result['type'] == 'track':
-            await track_upload(result['items'][0], user)
-        elif result['type'] == 'video':
-            await music_video_upload(result['items'][0], user)
-        elif result['type'] == 'album':
-            await album_upload(result, user)
-        elif result['type'] == 'playlist':
-            await playlist_upload(result, user)
-        else:
-            await edit_message(user['bot_msg'], f"❌ Unsupported content type: {result['type']}")
-            return
-        
-        # Final cleanup
-        await cleanup(user)
-        await edit_message(user['bot_msg'], "✅ Apple Music download completed!")
-        
-    except Exception as e:
-        logger.error(f"Apple Music error: {str(e)}", exc_info=True)
-        await edit_message(user['bot_msg'], f"❌ Error: {str(e)}")
-        await cleanup(user)
+    """Entry point for Apple Music downloads"""
+    processor = AppleMusicCore()
+    await processor.process(link, user, options)
