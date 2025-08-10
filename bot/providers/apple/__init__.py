@@ -1,3 +1,5 @@
+# bot/providers/__init__.py
+
 from .apple import AppleMusicCore
 from .uploader import (
     apple_track_upload,
