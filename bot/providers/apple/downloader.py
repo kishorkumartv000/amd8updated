@@ -15,7 +15,7 @@ from .utils import (
 
 async def run_apple_downloader(url: str, user_id: int, options: list = None, user: dict = None) -> dict:
     """
-    Execute Apple Music downloader script with original flags
+    Execute Apple Music downloader script with proper config.yaml usage
     Args:
         url: Apple Music URL to download
         user_id: Telegram user ID for directory setup
@@ -32,22 +32,22 @@ async def run_apple_downloader(url: str, user_id: int, options: list = None, use
         if not os.path.exists(Config.DOWNLOADER_PATH):
             raise FileNotFoundError(f"Apple downloader not found at {Config.DOWNLOADER_PATH}")
 
-        # Build command with original flags
+        # Build command without --output flag
         cmd = [
             Config.DOWNLOADER_PATH,
             *([] if not options else options),
-            "--output", output_dir,
             url  # URL comes last
         ]
 
         LOGGER.info(f"Apple Download Command: {' '.join(cmd)}")
 
-        # Execute process
+        # Execute process with config.yaml environment
         process = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=output_dir,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "APPLE_CONFIG": os.path.join(output_dir, "config.yaml")}
         )
 
         return await _monitor_download_process(process, user)
@@ -59,7 +59,7 @@ async def run_apple_downloader(url: str, user_id: int, options: list = None, use
 async def _monitor_download_process(process, user: dict) -> dict:
     """
     Monitor download process and handle output
-    (Preserved original implementation)
+    (Optimized with better error handling)
     """
     stdout_chunks = []
     last_progress = 0
@@ -135,26 +135,26 @@ async def handle_apple_download(url: str, user: dict, options: dict = None):
         content_id = extract_content_id(url)
         LOGGER.debug(f"Apple Content ID: {content_id}")
 
-        # Create user-specific directory
+        # Create user-specific directory (generates config.yaml)
         output_dir = create_apple_directory(user['user_id'])
 
-        # Build download command
+        # Build download command without --output
         apple_cmd = [
             Config.DOWNLOADER_PATH,
             *build_apple_options(options or {}),
-            "--output", output_dir,
             url
         ]
 
         # Log final command
         LOGGER.info(f"Apple Command: {' '.join(apple_cmd)}")
 
-        # Execute download process
+        # Execute download process with config
         process = await asyncio.create_subprocess_exec(
             *apple_cmd,
             cwd=output_dir,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "APPLE_CONFIG": os.path.join(output_dir, "config.yaml")}
         )
 
         # Monitor progress
@@ -181,25 +181,25 @@ async def start_apple(link: str, user: dict, options: dict = None):
         # Verify dependencies
         verify_apple_dependencies()
 
-        # Create user directory
+        # Create user directory (generates config.yaml)
         output_dir = create_apple_directory(user['user_id'])
 
-        # Build download command
+        # Build download command without --output
         cmd = [
             Config.DOWNLOADER_PATH,
             *build_apple_options(options or {}),
-            "--output", output_dir,
             link
         ]
 
         LOGGER.info(f"Apple Command: {' '.join(cmd)}")
 
-        # Execute download
+        # Execute download with config
         process = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=output_dir,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "APPLE_CONFIG": os.path.join(output_dir, "config.yaml")}
         )
 
         # Monitor progress
@@ -241,7 +241,6 @@ async def _handle_progress(process, user: dict):
 def build_apple_options(options: dict) -> list:
     """Convert user options to original Apple flags"""
     option_map = {
-        # Original flag mappings
         'aac': '--aac',
         'aac-type': '--aac-type',
         'alac-max': '--alac-max',
