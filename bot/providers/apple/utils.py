@@ -38,7 +38,7 @@ def extract_content_id(url: str) -> str:
 
 def create_apple_directory(user_id: int) -> str:
     """
-    Create Apple-specific directory structure with config
+    Create Apple-specific directory structure with full config
     Args:
         user_id: Telegram user ID
     Returns:
@@ -52,11 +52,16 @@ def create_apple_directory(user_id: int) -> str:
         )
         Path(base_dir).mkdir(parents=True, exist_ok=True)
         
-        # Create default config
+        # Create subdirectories
+        os.makedirs(os.path.join(base_dir, "alac"), exist_ok=True)
+        os.makedirs(os.path.join(base_dir, "atmos"), exist_ok=True)
+        os.makedirs(os.path.join(base_dir, "aac"), exist_ok=True)
+        
+        # Generate config
         config_path = os.path.join(base_dir, "config.yaml")
         if not os.path.exists(config_path):
             with open(config_path, 'w') as f:
-                f.write(generate_apple_config())
+                f.write(generate_apple_config(user_id))
         
         LOGGER.debug(f"Created Apple directory: {base_dir}")
         return base_dir
@@ -64,12 +69,52 @@ def create_apple_directory(user_id: int) -> str:
         logger.error(f"Directory creation failed: {str(e)}")
         raise
 
-def generate_apple_config() -> str:
-    """Generate default Apple Music config"""
-    return f"""alac-save-folder: {Config.LOCAL_STORAGE}/Apple Music/alac
-atmos-save-folder: {Config.LOCAL_STORAGE}/Apple Music/atmos
+def generate_apple_config(user_id: int) -> str:
+    """Generate complete Apple Music config with user-specific paths"""
+    base_dir = os.path.join(
+        Config.LOCAL_STORAGE,
+        "Apple Music",
+        str(user_id)
+    )
+    
+    return f"""media-user-token: "{Config.APPLE_MEDIA_TOKEN}"
+authorization-token: "{Config.APPLE_AUTH_TOKEN}"
+language: "en-US"
+lrc-type: "lyrics"
+lrc-format: "lrc"
+embed-lrc: true
+save-lrc-file: true
+save-artist-cover: true
+save-animated-artwork: false
+emby-animated-artwork: false
+embed-cover: true
+cover-size: 5000x5000
+cover-format: jpg
+alac-save-folder: {os.path.join(base_dir, "alac")}
+atmos-save-folder: {os.path.join(base_dir, "atmos")}
+aac-save-folder: {os.path.join(base_dir, "aac")}
+max-memory-limit: 256
+decrypt-m3u8-port: "127.0.0.1:10020"
+get-m3u8-port: "127.0.0.1:20020"
+get-m3u8-from-device: true
+get-m3u8-mode: hires
+aac-type: aac-lc
 alac-max: {Config.APPLE_ALAC_QUALITY}
-atmos-max: {Config.APPLE_ATMOS_QUALITY}"""
+atmos-max: {Config.APPLE_ATMOS_QUALITY}
+limit-max: 200
+album-folder-format: "{{AlbumName}}"
+playlist-folder-format: "{{PlaylistName}}"
+song-file-format: "{{SongNumer}}. {{SongName}}"
+artist-folder-format: "{{UrlArtistName}}"
+explicit-choice : "[E]"
+clean-choice : "[C]"
+apple-master-choice : "[M]"
+use-songinfo-for-playlist: false
+dl-albumcover-for-playlist: false
+mv-audio-type: atmos
+mv-max: 2160
+storefront: "{Config.APPLE_STOREFRONT}"
+"""
 
 def cleanup_apple_files(user_id: int):
     """
