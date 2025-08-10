@@ -1,8 +1,8 @@
-from .apple import AppleMusicCore, start_apple
-from .apple.downloader import handle_apple_download
-from .downloader import run_apple_downloader
+from .apple import AppleMusicCore
+from .apple.downloader import start_apple
+from .downloader import run_apple_downloader, handle_apple_download
 from .metadata import extract_apple_metadata
-from .uploader import (  # Added this line
+from .uploader import (
     apple_track_upload,
     apple_album_upload,
     apple_music_video_upload,
@@ -14,10 +14,9 @@ from .uploader import (  # Added this line
 __all__ = [
     'AppleMusicCore',
     'start_apple',
-    'handle_apple_download',
     'run_apple_downloader',
+    'handle_apple_download',
     'extract_apple_metadata',
-    # Add these new exports
     'apple_track_upload',
     'apple_album_upload',
     'apple_music_video_upload',
