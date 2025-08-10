@@ -96,4 +96,4 @@ class Config:
     ALBUM_ZIP             = getenv("ALBUM_ZIP", "False")                  # True or False
     PLAYLIST_ZIP          = getenv("PLAYLIST_ZIP", "False")               # True or False
     ARTIST_ZIP            = getenv("ARTIST_ZIP", "False")                 # True or False
-    RCLONE_LINK_OPTIONS   = getenv("RCLONE_LINK_OPTIONS", "Index")
+    RCLONE_LINK_OPTIONS   = getenv("RCLONE_LINK_OPTIONS", "Index")        # False, Index, RCLONE, or Both
