@@ -9,7 +9,6 @@ from .utils import (
     extract_content_id,
     create_apple_directory,
     cleanup_apple_files,
-    build_apple_options,
     verify_apple_dependencies
 )
 
