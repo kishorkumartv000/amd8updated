@@ -171,13 +171,53 @@ async def handle_apple_download(url: str, user: dict, options: dict = None):
         cleanup_apple_files(user['user_id'])
 
 
+async def start_apple(link: str, user: dict, options: dict = None):
+    """Main entry point for Apple Music downloads"""
+    try:
+        # Validate URL
+        if not validate_apple_url(link):
+            await edit_message(user['bot_msg'], "Invalid Apple Music URL")
+            return
+
+        # Verify dependencies
+        verify_apple_dependencies()
+
+        # Create user directory
+        output_dir = create_apple_directory(user['user_id'])
+
+        # Build download command
+        cmd = [
+            Config.DOWNLOADER_PATH,
+            *build_apple_options(options or {}),
+            "--output", output_dir,
+            link
+        ]
+
+        LOGGER.info(f"Apple Command: {' '.join(cmd)}")
+
+        # Execute download
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=output_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        # Monitor progress
+        await _handle_progress(process, user)
+        
+        # Final cleanup
+        cleanup_apple_files(user['user_id'])
+        await edit_message(user['bot_msg'], "✅ Apple Music download completed!")
+
+    except Exception as e:
+        LOGGER.error(f"Apple Music Error: {str(e)}")
+        await edit_message(user['bot_msg'], f"❌ Apple Error: {str(e)}")
+        cleanup_apple_files(user['user_id'])
+
+
 async def _handle_progress(process, user: dict):
-    """
-    Real-time progress monitoring
-    Args:
-        process: Running subprocess
-        user: User details
-    """
+    """Real-time progress tracking"""
     while True:
         line = await process.stdout.readline()
         if not line:
@@ -186,13 +226,13 @@ async def _handle_progress(process, user: dict):
         line_str = line.decode().strip()
         if '%' in line_str:
             progress = int(re.search(r'(\d+)%', line_str).group(1))
-            if progress % 5 == 0:  # Throttle updates
+            if progress % 5 == 0:
                 await edit_message(
                     user['bot_msg'],
-                    f"🍎 Download Progress: {progress}%"
+                    f"🍎 Progress: {progress}%"
                 )
 
-    # Check final status
+    # Check exit status
     stdout, stderr = await process.communicate()
     if process.returncode != 0:
         error = stderr.decode().strip() or "Unknown error"
