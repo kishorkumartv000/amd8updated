@@ -11,8 +11,7 @@ from ..helpers.qobuz.handler import start_qobuz
 from ..helpers.tidal.handler import start_tidal
 from ..helpers.deezer.handler import start_deezer
 from ..helpers.message import send_message, antiSpam, check_user, fetch_user_details, edit_message
-from bot.providers import handle_apple_download
-
+from bot.providers.apple.downloader import handle_apple_download  # fixed import
 
 @Client.on_message(filters.command(CMD.DOWNLOAD))
 async def download_track(c, msg: Message):
@@ -44,13 +43,12 @@ async def download_track(c, msg: Message):
             user['link'] = link
             user['bot_msg'] = await send_message(msg, 'Starting download...')
             try:
+                # route to providers, including Apple
                 await start_link(link, user, options)
                 await send_message(user, lang.s.TASK_COMPLETED)
             except Exception as e:
                 LOGGER.error(f"Download failed: {e}")
-                # USE SAFE ERROR MESSAGING
-                error_msg = f"Download failed: {str(e)}"
-                await send_message(user, error_msg)
+                await send_message(user, f"Download failed: {str(e)}")
             await c.delete_messages(msg.chat.id, user['bot_msg'].id)
             await cleanup(user)  # deletes uploaded files
             await antiSpam(msg.from_user.id, msg.chat.id, True)
@@ -71,10 +69,9 @@ def parse_options(parts: list) -> dict:
         part = parts[i]
         if part.startswith('--'):
             key = part[2:]
-            # Check if next part is a value (not another option)
             if i + 1 < len(parts) and not parts[i+1].startswith('--'):
                 options[key] = parts[i+1]
-                i += 1  # Skip value
+                i += 1
             else:
                 options[key] = True
         i += 1
@@ -104,7 +101,7 @@ async def start_link(link: str, user: dict, options: dict = None):
         user['provider'] = 'Qobuz'
         await start_qobuz(link, user)
     elif link.startswith(tuple(spotify)):
-        return 'spotify'
+        await send_message(user, "Spotify support coming soon!")
     elif link.startswith(tuple(apple_music)):
         await handle_apple_download(link, user, options)
     else:
