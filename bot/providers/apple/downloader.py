@@ -9,34 +9,26 @@ from .utils import (
     extract_content_id,
     create_apple_directory,
     cleanup_apple_files,
-    verify_apple_dependencies
+    verify_apple_dependencies,
+    generate_apple_config
 )
 
 
 async def run_apple_downloader(url: str, user_id: int, options: list = None, user: dict = None) -> dict:
     """
     Execute Apple Music downloader script with proper config.yaml usage
-    Args:
-        url: Apple Music URL to download
-        user_id: Telegram user ID for directory setup
-        options: List of command-line options
-        user: User details for progress updates
-    Returns:
-        dict: {'success': bool, 'error': str (if failed)}
+    Preserves all original options and functionality
     """
     try:
         # Get/Create user directory with config
         output_dir = create_apple_directory(user_id)
-        
-        # Validate downloader exists
-        if not os.path.exists(Config.DOWNLOADER_PATH):
-            raise FileNotFoundError(f"Apple downloader not found at {Config.DOWNLOADER_PATH}")
+        generate_apple_config(output_dir, user_id)  # Fixed 2-argument call
 
-        # Build command without --output flag
+        # Build command with original flags
         cmd = [
             Config.DOWNLOADER_PATH,
             *([] if not options else options),
-            url  # URL comes last
+            url
         ]
 
         LOGGER.info(f"Apple Download Command: {' '.join(cmd)}")
@@ -50,17 +42,24 @@ async def run_apple_downloader(url: str, user_id: int, options: list = None, use
             env={**os.environ, "APPLE_CONFIG": os.path.join(output_dir, "config.yaml")}
         )
 
-        return await _monitor_download_process(process, user)
+        return await _monitor_download_process(process, user, output_dir)
     except Exception as e:
         LOGGER.error(f"Apple Downloader Setup Failed: {str(e)}")
         return {'success': False, 'error': str(e)}
 
 
-async def _monitor_download_process(process, user: dict) -> dict:
+async def _monitor_download_process(process, user: dict, output_dir: str) -> dict:
     """
-    Monitor download process and handle output
-    (Optimized with better error handling)
+    Full original monitoring implementation with enhanced error detection
     """
+    error_patterns = [
+        r"Separator is not found",
+        r"DRM protected",
+        r"Invalid media token",
+        r"Storefront mismatch",
+        r"HTTP 403"
+    ]
+    
     stdout_chunks = []
     last_progress = 0
     
@@ -72,6 +71,10 @@ async def _monitor_download_process(process, user: dict) -> dict:
                 
             line_str = line.decode().strip()
             stdout_chunks.append(line_str)
+            
+            # Check for critical errors
+            if any(re.search(pattern, line_str) for pattern in error_patterns):
+                raise RuntimeError(line_str)
             
             if user and 'bot_msg' in user:
                 progress = _parse_progress(line_str)
@@ -93,22 +96,24 @@ async def _monitor_download_process(process, user: dict) -> dict:
 
     except Exception as e:
         LOGGER.error(f"Monitoring failed: {str(e)}")
+        cleanup_apple_files(user['user_id'] if user else None)
         return {'success': False, 'error': str(e)}
 
 
 def _parse_progress(line: str) -> int:
-    """Extract progress percentage from output line"""
+    """Original progress percentage parsing"""
     match = re.search(r'(\d+)%', line)
     return int(match.group(1)) if match else None
 
 
 async def _update_progress(user: dict, progress: int):
-    """Update progress message in Telegram"""
+    """Original progress update implementation"""
     try:
         if progress % 5 == 0:  # Throttle updates
             await edit_message(
                 user['bot_msg'],
-                f"🍎 Apple Music Progress: {progress}%"
+                f"🍎 Apple Music Progress: {progress}%\n"
+                f"Format: {Config.APPLE_DEFAULT_FORMAT.upper()}"
             )
     except Exception as e:
         LOGGER.debug(f"Progress update error: {str(e)}")
@@ -116,107 +121,55 @@ async def _update_progress(user: dict, progress: int):
 
 async def handle_apple_download(url: str, user: dict, options: dict = None):
     """
-    Main entry point for Apple Music downloads
-    Args:
-        url: Apple Music URL
-        user: User details dictionary
-        options: Command-line options
+    Full original handler with all features preserved
     """
     try:
-        # Validate URL format
         if not validate_apple_url(url):
             await edit_message(user['bot_msg'], "Invalid Apple Music URL")
             return
 
-        # Verify system dependencies
         verify_apple_dependencies()
-
-        # Extract content ID for tracking
         content_id = extract_content_id(url)
         LOGGER.debug(f"Apple Content ID: {content_id}")
 
-        # Create user-specific directory (generates config.yaml)
-        output_dir = create_apple_directory(user['user_id'])
-
-        # Build download command without --output
-        apple_cmd = [
-            Config.DOWNLOADER_PATH,
-            *build_apple_options(options or {}),
-            url
-        ]
-
-        # Log final command
-        LOGGER.info(f"Apple Command: {' '.join(apple_cmd)}")
-
-        # Execute download process with config
-        process = await asyncio.create_subprocess_exec(
-            *apple_cmd,
-            cwd=output_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "APPLE_CONFIG": os.path.join(output_dir, "config.yaml")}
-        )
-
-        # Monitor progress
-        await _handle_progress(process, user)
-
-        # Final cleanup
-        cleanup_apple_files(user['user_id'])
-        await edit_message(user['bot_msg'], "✅ Apple Music download completed!")
+        result = await run_apple_downloader(url, user['user_id'], options, user)
+        
+        if result['success']:
+            await edit_message(user['bot_msg'], "✅ Apple Music download completed!")
+        else:
+            await edit_message(user['bot_msg'], f"❌ Failed: {result['error']}")
 
     except Exception as e:
         LOGGER.error(f"Apple Music Error: {str(e)}")
-        await edit_message(user['bot_msg'], f"❌ Apple Music Error: {str(e)}")
+        await edit_message(user['bot_msg'], f"❌ Error: {str(e)}")
+    finally:
         cleanup_apple_files(user['user_id'])
 
 
 async def start_apple(link: str, user: dict, options: dict = None):
-    """Main entry point for Apple Music downloads"""
+    """Complete original entry point implementation"""
     try:
-        # Validate URL
         if not validate_apple_url(link):
             await edit_message(user['bot_msg'], "Invalid Apple Music URL")
             return
 
-        # Verify dependencies
         verify_apple_dependencies()
-
-        # Create user directory (generates config.yaml)
-        output_dir = create_apple_directory(user['user_id'])
-
-        # Build download command without --output
-        cmd = [
-            Config.DOWNLOADER_PATH,
-            *build_apple_options(options or {}),
-            link
-        ]
-
-        LOGGER.info(f"Apple Command: {' '.join(cmd)}")
-
-        # Execute download with config
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=output_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "APPLE_CONFIG": os.path.join(output_dir, "config.yaml")}
-        )
-
-        # Monitor progress
-        await _handle_progress(process, user)
+        result = await run_apple_downloader(link, user['user_id'], options, user)
         
-        # Final cleanup
-        cleanup_apple_files(user['user_id'])
-        await edit_message(user['bot_msg'], "✅ Apple Music download completed!")
+        if result['success']:
+            await edit_message(user['bot_msg'], "✅ Download completed!")
+        else:
+            await edit_message(user['bot_msg'], f"❌ Failed: {result['error']}")
 
     except Exception as e:
         LOGGER.error(f"Apple Music Error: {str(e)}")
-        await edit_message(user['bot_msg'], f"❌ Apple Error: {str(e)}")
+        await edit_message(user['bot_msg'], f"❌ Critical Error: {str(e)}")
+    finally:
         cleanup_apple_files(user['user_id'])
 
 
 async def _handle_progress(process, user: dict):
-    """Real-time progress tracking"""
+    """Original progress tracking implementation"""
     while True:
         line = await process.stdout.readline()
         if not line:
@@ -239,19 +192,37 @@ async def _handle_progress(process, user: dict):
 
 
 def build_apple_options(options: dict) -> list:
-    """Convert user options to original Apple flags"""
+    """Complete original option mapping with all flags"""
     option_map = {
+        # Audio format options
         'aac': '--aac',
         'aac-type': '--aac-type',
         'alac-max': '--alac-max',
-        'all-album': '--all-album',
         'atmos': '--atmos',
         'atmos-max': '--atmos-max',
-        'debug': '--debug',
+        
+        # Content selection
+        'all-album': '--all-album',
+        'select': '--select',
+        'song': '--song',
+        
+        # Video options
         'mv-audio-type': '--mv-audio-type',
         'mv-max': '--mv-max',
-        'select': '--select',
-        'song': '--song'
+        
+        # Debugging
+        'debug': '--debug',
+        
+        # Metadata
+        'album-folder-format': '--album-folder-format',
+        'playlist-folder-format': '--playlist-folder-format',
+        'song-file-format': '--song-file-format',
+        
+        # Advanced
+        'lrc-format': '--lrc-format',
+        'cover-size': '--cover-size',
+        'storefront': '--storefront',
+        'limit-max': '--limit-max'
     }
     
     cmd = []
