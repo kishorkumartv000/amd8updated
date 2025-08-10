@@ -26,17 +26,16 @@ async def run_apple_downloader(url: str, output_dir: str, options: list = None, 
         config_path = os.path.join(output_dir, "apple_config.yaml")
         _create_config_file(config_path, output_dir)
 
-        # Build command
+        # Build command (REMOVED --config FLAG)
         cmd = [
             Config.DOWNLOADER_PATH,
-            "--config", config_path,
-            "--output", output_dir
+            "--output", output_dir,
+            url  # URL comes after output directory
         ]
         
-        # Add user options
+        # Add user options before URL
         if options:
-            cmd.extend(options)
-        cmd.append(url)
+            cmd = options + cmd[1:-1] + [url]
 
         LOGGER.info(f"Apple Download Command: {' '.join(cmd)}")
 
@@ -58,9 +57,7 @@ async def run_apple_downloader(url: str, output_dir: str, options: list = None, 
 def _create_config_file(config_path: str, output_dir: str):
     """
     Generate Apple Music downloader configuration
-    Args:
-        config_path: Full path to config file
-        output_dir: Base output directory
+    (Kept identical to original implementation)
     """
     config_content = f"""# Apple Music Configuration
 lrc-type: "lyrics"
@@ -104,11 +101,7 @@ atmos-save-folder: {os.path.join(output_dir, "atmos")}
 async def _monitor_download_process(process, user: dict) -> dict:
     """
     Monitor download process and handle output
-    Args:
-        process: Running subprocess
-        user: User details for progress updates
-    Returns:
-        dict: Process result
+    (Identical to original implementation)
     """
     stdout_chunks = []
     last_progress = 0
@@ -122,18 +115,15 @@ async def _monitor_download_process(process, user: dict) -> dict:
             line_str = line.decode().strip()
             stdout_chunks.append(line_str)
             
-            # Update progress if available
             if user and 'bot_msg' in user:
                 progress = _parse_progress(line_str)
                 if progress and progress != last_progress:
                     await _update_progress(user, progress)
                     last_progress = progress
 
-        # Get remaining output
         stdout, stderr = await process.communicate()
         stdout_chunks.extend(stdout.decode().splitlines())
         
-        # Check result
         return_code = process.returncode
         if return_code != 0:
             error_output = stderr.decode().strip() or "\n".join(stdout_chunks[-5:])
@@ -155,10 +145,32 @@ def _parse_progress(line: str) -> int:
 async def _update_progress(user: dict, progress: int):
     """Update progress message in Telegram"""
     try:
-        if progress % 5 == 0:  # Throttle updates
+        if progress % 5 == 0:
             await edit_message(
                 user['bot_msg'],
                 f"🍎 Apple Music Download Progress: {progress}%"
             )
     except Exception as e:
         LOGGER.debug(f"Progress update failed: {str(e)}")
+
+def build_apple_options(options: dict) -> list:
+    """Convert options dict to CLI arguments (CRITICAL FIX)"""
+    option_map = {
+        'song': '--song',
+        'atmos': '--atmos',
+        'alac-max': '--alac-max',
+        'atmos-max': '--atmos-max',
+        'mv-max': '--mv-max',
+        'select': '--select',
+        'all-album': '--all-album',
+        'debug': '--debug'
+    }
+    
+    cmd = []
+    for key, value in (options or {}).items():
+        if key in option_map:
+            if isinstance(value, bool):
+                cmd.append(option_map[key])
+            else:
+                cmd.extend([option_map[key], str(value)])
+    return cmd
