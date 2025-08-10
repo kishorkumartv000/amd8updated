@@ -8,7 +8,7 @@ from .utils import create_apple_directory
 
 async def run_apple_downloader(url: str, user_id: int, options: list = None, user: dict = None) -> dict:
     """
-    Execute Apple Music downloader script with proper configuration
+    Execute Apple Music downloader script with original flags
     Args:
         url: Apple Music URL to download
         user_id: Telegram user ID for directory setup
@@ -25,11 +25,11 @@ async def run_apple_downloader(url: str, user_id: int, options: list = None, use
         if not os.path.exists(Config.DOWNLOADER_PATH):
             raise FileNotFoundError(f"Apple downloader not found at {Config.DOWNLOADER_PATH}")
 
-        # Build validated command structure
+        # Build command with original flags
         cmd = [
             Config.DOWNLOADER_PATH,
             *([] if not options else options),
-            "--save-dir", output_dir,  # Corrected flag
+            "--output", output_dir,
             url  # URL comes last
         ]
 
@@ -51,7 +51,7 @@ async def run_apple_downloader(url: str, user_id: int, options: list = None, use
 async def _monitor_download_process(process, user: dict) -> dict:
     """
     Monitor download process and handle output
-    (Preserved original implementation with critical fixes)
+    (Preserved original implementation)
     """
     stdout_chunks = []
     last_progress = 0
@@ -104,14 +104,20 @@ async def _update_progress(user: dict, progress: int):
         LOGGER.debug(f"Progress update error: {str(e)}")
 
 def build_apple_options(options: dict) -> list:
-    """Convert options to Apple-specific CLI arguments"""
+    """Convert user options to original Apple flags"""
     option_map = {
-        'song': '--single-track',
-        'atmos': '--dolby-atmos',
-        'alac-max': '--alac-quality',
-        'atmos-max': '--atmos-bitrate',
-        'debug': '--verbose-logging',
-        'select': '--item-select'
+        # Original flag mappings
+        'aac': '--aac',
+        'aac-type': '--aac-type',
+        'alac-max': '--alac-max',
+        'all-album': '--all-album',
+        'atmos': '--atmos',
+        'atmos-max': '--atmos-max',
+        'debug': '--debug',
+        'mv-audio-type': '--mv-audio-type',
+        'mv-max': '--mv-max',
+        'select': '--select',
+        'song': '--song'
     }
     
     cmd = []
