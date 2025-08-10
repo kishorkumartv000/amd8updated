@@ -1,6 +1,5 @@
 from .apple import AppleMusicCore
-from .apple.downloader import start_apple
-from .downloader import run_apple_downloader, handle_apple_download
+from .apple.downloader import start_apple, run_apple_downloader, handle_apple_download
 from .metadata import extract_apple_metadata
 from .uploader import (
     apple_track_upload,
