@@ -52,14 +52,14 @@ def create_apple_directory(user_id: int) -> str:
         )
         Path(base_dir).mkdir(parents=True, exist_ok=True)
         
-        # Create subdirectories
-        os.makedirs(os.path.join(base_dir, "alac"), exist_ok=True)
-        os.makedirs(os.path.join(base_dir, "atmos"), exist_ok=True)
-        os.makedirs(os.path.join(base_dir, "aac"), exist_ok=True)
+        # Create subdirectories using pathlib
+        (Path(base_dir)/"alac").mkdir(exist_ok=True)
+        (Path(base_dir)/"atmos").mkdir(exist_ok=True)
+        (Path(base_dir)/"aac").mkdir(exist_ok=True)
         
         # Generate config
-        config_path = os.path.join(base_dir, "config.yaml")
-        if not os.path.exists(config_path):
+        config_path = Path(base_dir)/"config.yaml"
+        if not config_path.exists():
             with open(config_path, 'w') as f:
                 f.write(generate_apple_config(user_id))
         
@@ -133,37 +133,6 @@ def cleanup_apple_files(user_id: int):
             LOGGER.debug(f"Cleaned Apple directory: {apple_dir}")
     except Exception as e:
         logger.error(f"Apple cleanup failed: {str(e)}")
-
-def build_apple_options(options: dict) -> list:
-    """
-    Convert options dict to Apple downloader CLI arguments
-    Args:
-        options: User-provided options
-    Returns:
-        list: CLI arguments for downloader
-    """
-    cmd = []
-    option_map = {
-        'aac': '--aac',
-        'aac-type': '--aac-type',
-        'alac-max': '--alac-max',
-        'all-album': '--all-album',
-        'atmos': '--atmos',
-        'atmos-max': '--atmos-max',
-        'debug': '--debug',
-        'mv-audio-type': '--mv-audio-type',
-        'mv-max': '--mv-max',
-        'select': '--select',
-        'song': '--song'
-    }
-    
-    for key, value in (options or {}).items():
-        if key in option_map:
-            if isinstance(value, bool):
-                cmd.append(option_map[key])
-            else:
-                cmd.extend([option_map[key], str(value)])
-    return cmd
 
 def verify_apple_dependencies():
     """
