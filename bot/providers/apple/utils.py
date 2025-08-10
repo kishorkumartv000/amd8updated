@@ -38,7 +38,7 @@ def extract_content_id(url: str) -> str:
 
 def create_apple_directory(user_id: int) -> str:
     """
-    Create Apple-specific directory structure
+    Create Apple-specific directory structure with config
     Args:
         user_id: Telegram user ID
     Returns:
@@ -51,11 +51,25 @@ def create_apple_directory(user_id: int) -> str:
             str(user_id)
         )
         Path(base_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Create default config
+        config_path = os.path.join(base_dir, "config.yaml")
+        if not os.path.exists(config_path):
+            with open(config_path, 'w') as f:
+                f.write(generate_apple_config())
+        
         LOGGER.debug(f"Created Apple directory: {base_dir}")
         return base_dir
     except Exception as e:
         logger.error(f"Directory creation failed: {str(e)}")
         raise
+
+def generate_apple_config() -> str:
+    """Generate default Apple Music config"""
+    return f"""alac-save-folder: {Config.LOCAL_STORAGE}/Apple Music/alac
+atmos-save-folder: {Config.LOCAL_STORAGE}/Apple Music/atmos
+alac-max: {Config.APPLE_ALAC_QUALITY}
+atmos-max: {Config.APPLE_ATMOS_QUALITY}"""
 
 def cleanup_apple_files(user_id: int):
     """
