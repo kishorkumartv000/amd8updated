@@ -11,6 +11,7 @@ from ..helpers.qobuz.handler import start_qobuz
 from ..helpers.tidal.handler import start_tidal
 from ..helpers.deezer.handler import start_deezer
 from ..helpers.message import send_message, antiSpam, check_user, fetch_user_details, edit_message
+from bot.providers import handle_apple_download
 
 
 @Client.on_message(filters.command(CMD.DOWNLOAD))
@@ -93,6 +94,7 @@ async def start_link(link: str, user: dict, options: dict = None):
     deezer = ["https://link.deezer.com", "https://deezer.com", "deezer.com", "https://www.deezer.com", "link.deezer.com"]
     qobuz = ["https://play.qobuz.com", "https://open.qobuz.com", "https://www.qobuz.com"]
     spotify = ["https://open.spotify.com"]
+    apple_music = ["https://music.apple.com"]
     
     if link.startswith(tuple(tidal)):
         await start_tidal(link, user)
@@ -103,5 +105,7 @@ async def start_link(link: str, user: dict, options: dict = None):
         await start_qobuz(link, user)
     elif link.startswith(tuple(spotify)):
         return 'spotify'
+    elif link.startswith(tuple(apple_music)):
+        await handle_apple_download(link, user, options)
     else:
         await send_message(user, lang.s.ERR_UNSUPPORTED_LINK)
