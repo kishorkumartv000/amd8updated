@@ -81,6 +81,9 @@ class Config:
     APPLE_DEFAULT_FORMAT = getenv("APPLE_DEFAULT_FORMAT", "alac")          # alac or atmos
     APPLE_ALAC_QUALITY    = int(getenv("APPLE_ALAC_QUALITY", 192000))     # 192000, 256000, 320000
     APPLE_ATMOS_QUALITY   = int(getenv("APPLE_ATMOS_QUALITY", 2768))      # Only 2768 for Atmos
+    APPLE_MEDIA_TOKEN     = getenv("APPLE_MEDIA_TOKEN", "")               # Apple Music media token
+    APPLE_AUTH_TOKEN      = getenv("APPLE_AUTH_TOKEN", "")                # Apple Music auth token
+    APPLE_STOREFRONT      = getenv("APPLE_STOREFRONT", "us")              # Storefront country code
     
     # Optional Settings (via /settings)
     BOT_PUBLIC            = getenv("BOT_PUBLIC", "False")                 # True or False
@@ -93,4 +96,4 @@ class Config:
     ALBUM_ZIP             = getenv("ALBUM_ZIP", "False")                  # True or False
     PLAYLIST_ZIP          = getenv("PLAYLIST_ZIP", "False")               # True or False
     ARTIST_ZIP            = getenv("ARTIST_ZIP", "False")                 # True or False
-    RCLONE_LINK_OPTIONS   = getenv("RCLONE_LINK_OPTIONS", "Index")        # False, Index, RCLONE, or Both
+    RCLONE_LINK_OPTIONS   = getenv("RCLONE_LINK_OPTIONS", "Index")
