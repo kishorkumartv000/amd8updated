@@ -1,45 +1,40 @@
 import os
 import re
 import asyncio
-import subprocess
 from config import Config
 from bot.logger import LOGGER
 from bot.helpers.message import edit_message
+from .utils import create_apple_directory  # Import from utils
 
-async def run_apple_downloader(url: str, output_dir: str, options: list = None, user: dict = None) -> dict:
+async def run_apple_downloader(url: str, user_id: int, options: list = None, user: dict = None) -> dict:
     """
-    Execute Apple Music downloader script with proper configuration
+    Execute Apple Music downloader script using user-specific config
     Args:
         url: Apple Music URL to download
-        output_dir: Directory to save downloaded files
+        user_id: Telegram user ID for directory setup
         options: List of command-line options
         user: User details for progress updates
     Returns:
         dict: {'success': bool, 'error': str (if failed)}
     """
     try:
-        # Validate downloader path
+        # Get/Create user directory with config
+        output_dir = create_apple_directory(user_id)
+        
         if not os.path.exists(Config.DOWNLOADER_PATH):
             raise FileNotFoundError(f"Apple downloader not found at {Config.DOWNLOADER_PATH}")
 
-        # Create config file
-        config_path = os.path.join(output_dir, "apple_config.yaml")
-        _create_config_file(config_path, output_dir)
-
-        # Build command (REMOVED --config FLAG)
+        # Build command with proper structure
         cmd = [
             Config.DOWNLOADER_PATH,
+            *([] if not options else options),
             "--output", output_dir,
-            url  # URL comes after output directory
+            url
         ]
-        
-        # Add user options before URL
-        if options:
-            cmd = options + cmd[1:-1] + [url]
 
         LOGGER.info(f"Apple Download Command: {' '.join(cmd)}")
 
-        # Run downloader process
+        # Run in user directory containing config.yaml
         process = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=output_dir,
@@ -47,61 +42,16 @@ async def run_apple_downloader(url: str, output_dir: str, options: list = None, 
             stderr=asyncio.subprocess.PIPE
         )
 
-        # Monitor progress
         return await _monitor_download_process(process, user)
 
     except Exception as e:
         LOGGER.error(f"Apple Downloader Setup Failed: {str(e)}")
         return {'success': False, 'error': str(e)}
 
-def _create_config_file(config_path: str, output_dir: str):
-    """
-    Generate Apple Music downloader configuration
-    (Kept identical to original implementation)
-    """
-    config_content = f"""# Apple Music Configuration
-lrc-type: "lyrics"
-lrc-format: "lrc"
-embed-lrc: true
-save-lrc-file: true
-save-artist-cover: true
-save-animated-artwork: false
-emby-animated-artwork: false
-embed-cover: true
-cover-size: 5000x5000
-cover-format: original
-max-memory-limit: 256
-decrypt-m3u8-port: "127.0.0.1:10020"
-get-m3u8-port: "127.0.0.1:20020"
-get-m3u8-from-device: true
-get-m3u8-mode: hires
-aac-type: aac-lc
-alac-max: {Config.APPLE_ALAC_QUALITY}
-atmos-max: {Config.APPLE_ATMOS_QUALITY}
-limit-max: 200
-album-folder-format: "{{AlbumName}}"
-playlist-folder-format: "{{PlaylistName}}"
-song-file-format: "{{SongNumber}}. {{SongName}}"
-artist-folder-format: "{{UrlArtistName}}"
-explicit-choice : "[E]"
-clean-choice : "[C]"
-apple-master-choice : "[M]"
-use-songinfo-for-playlist: false
-dl-albumcover-for-playlist: false
-mv-audio-type: atmos
-mv-max: 2160
-alac-save-folder: {os.path.join(output_dir, "alac")}
-atmos-save-folder: {os.path.join(output_dir, "atmos")}
-"""
-
-    with open(config_path, 'w') as f:
-        f.write(config_content)
-    LOGGER.debug(f"Created Apple config at {config_path}")
-
 async def _monitor_download_process(process, user: dict) -> dict:
     """
     Monitor download process and handle output
-    (Identical to original implementation)
+    (Original implementation preserved)
     """
     stdout_chunks = []
     last_progress = 0
@@ -122,9 +72,8 @@ async def _monitor_download_process(process, user: dict) -> dict:
                     last_progress = progress
 
         stdout, stderr = await process.communicate()
-        stdout_chunks.extend(stdout.decode().splitlines())
-        
         return_code = process.returncode
+        
         if return_code != 0:
             error_output = stderr.decode().strip() or "\n".join(stdout_chunks[-5:])
             LOGGER.error(f"Apple Download Failed (Code {return_code}): {error_output}")
@@ -154,7 +103,7 @@ async def _update_progress(user: dict, progress: int):
         LOGGER.debug(f"Progress update failed: {str(e)}")
 
 def build_apple_options(options: dict) -> list:
-    """Convert options dict to CLI arguments (CRITICAL FIX)"""
+    """Convert options dict to CLI arguments (Full mapping)"""
     option_map = {
         'song': '--song',
         'atmos': '--atmos',
@@ -163,7 +112,10 @@ def build_apple_options(options: dict) -> list:
         'mv-max': '--mv-max',
         'select': '--select',
         'all-album': '--all-album',
-        'debug': '--debug'
+        'debug': '--debug',
+        'aac': '--aac',
+        'aac-type': '--aac-type',
+        'mv-audio-type': '--mv-audio-type'
     }
     
     cmd = []
